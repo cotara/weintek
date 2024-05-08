@@ -1,0 +1,1070 @@
+﻿macro_definition_begin
+    "id": "0"
+    "name": "modbus"
+    "startup": "false"
+    "periodic": [ "true", "1" ]
+    "interlock": [ "false" ]
+macro_definition_end
+  // Read Holding Registers
+macro_command main()
+
+	short address=0
+	short read_no=0
+
+	//Common
+	unsigned char command[32]={0}, response[100]={0}
+	short return_value=0, checksum=0
+	unsigned short read_data[23]={0}
+	char currentDevice=0, network_error=0,device_addr=0,rele_addr[3]={0}
+	bool devices[7]={0}
+	bool true_=true, false_=false
+	unsigned short temp=0
+	float temp_f=0
+	
+	short ZASIname[4] = {'Z','A','S','I'}
+	short IASIname[4] = {'I','A','S','I'}
+	short ASIPname[4] = {'A','S','I','P'}
+	short LDMname[4] = {'L','D','M',' '}
+	short CAPname[4] = {'C','A','P',' '}
+	short UNKNOWNname[4] = {'U','N','K','N'}
+	unsigned char temp_model = 0
+	int i = 0
+	short rele_0CH=false,rele_1CH=false,rele_2CH=false
+	unsigned char releByte=0
+	
+	//LDM
+	int centr_X=0, centr_Y=0
+	unsigned int dm=0
+	int d1=0, d2=0, d_e=0
+	char error=0
+	char positionError=0, NullObject=0
+	float f_dm=0, f_d1=0, f_d2=0, f_c1=0, f_c2=0, f_o=0
+	float f_dm_max=0, f_dm_min=0, f_dm_up_pred=0, f_dm_down_pred=0
+	bool rele=false, relex=false,reley=false
+	
+	//ЗАСИ
+	unsigned short Ustavka=0,CntPrb=0,Prev_proboy_cnt=0
+	float Current_U=0,Current_C=0, Ustavka_f=0, ust_min_f=0,ust_max_f=0
+	char  HiOn=0,RealHi=0,Proboy=0
+	bool set_ust=0,set_CntPrb=0,set_HiOn=0
+
+	//ИД
+	int len=0,len_b=0,buht=0,vel=0,diam_val=0 
+	unsigned int set_buh_val=0
+	float len_f = 0, len_b_f=0, buht_f=0, vel_f=0, set_buh_val_f=0,diam_val_f=0, len_f_old=0,firstLen=0
+	short cabel_diam=0, distBtwDots=0,razrX=0,razrX_=0
+	bool sbros_len=0, sbros_buh=0, set_buh=0, set_diam=0, firstLenFlag=0
+	float levGr=0, prGr=0
+	
+	//CAP
+	bool setMin=0, setMax=0, setNom=0, setAdr=0, setSpeed=0, setCal1=0, setCal2=0, calApply1=0, calApply2=0,calAuto =0, cailrated =0
+	unsigned short ustCAP=0
+	unsigned short shCAP=0, shCx=0
+	float flCAP=0, re1x=0,im1x=0,ur=0,reIr=0
+	bool capMode=0
+	unsigned short autoCap=0
+	unsigned short calibMode=0
+	bool calibState=false
+	unsigned int speedCap=9600
+	
+	//RELE
+	unsigned char curByte=0, pastByte=0 
+	
+	//Programm
+	GetData(devices[0], "Local HMI", RW_Bit, 100, 7)						//Считываем конфигурацию всех 7 девайсов
+	
+	GetData(currentDevice, "Local HMI", LW, 80, 1)							//Номер текущего девайса
+	//Перебираем все девайсы, пока не встретим включенный 
+	while(devices[currentDevice] == 0)
+		currentDevice = currentDevice + 1
+		if currentDevice == 7 then
+			currentDevice = 0
+			GetData(devices[0], "Local HMI", RW_Bit, 100, 7)						//Считываем конфигурацию всех 7 девайсов
+		end if
+	wend
+	currentDevice = currentDevice + 1
+	SetData(currentDevice, "Local HMI", LW, 80, 1)							//Сохранили следующий девайс
+	
+	//Получить адрес девайса	
+	temp = (currentDevice)*100+20
+	GetData(device_addr, "Local HMI", RW, temp, 1)
+	
+
+	FILL(command[0], 0, 32)// command initialization					//Массив с командой заполняем нулями
+	FILL(response[0], 0, 100)											//Массив с ответом заполняем нулями
+	
+	//.................................................../
+	//.......................LDM........................./
+	//.................................................../
+	if currentDevice == 1 or currentDevice == 2 or currentDevice == 3  then 
+
+		//Запрос 3-я фукнция
+		command[0] = device_addr											// station no
+		command[1] = 0x3													// function code : Read Holding Registers
+		HIBYTE(0, command[2])												//address
+		LOBYTE(0, command[3])												
+		HIBYTE(38, command[4])												// read 22 words (4x_1 and 4x_2)
+		LOBYTE(38, command[5])
+		CRC(command[0], checksum, 6)
+		LOBYTE(checksum, command[6])
+		HIBYTE(checksum, command[7])
+				
+		OUTPORT(command[0], "REDWILL DEVICE", 8)							// отправляем команду 8 байт	
+		INPORT(response[0], "REDWILL DEVICE", 81, return_value)				// получаем ответ 49 байт
+		///////////////////////////////////////////////////////
+		
+		if return_value > 0 then	
+			CRC(response[0], checksum, 79)									//Считаем и проверяем CRC
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+			if  command[6] ==  response[79] and command[7] ==  response[80] then
+   				network_error=0
+   				
+   				temp=currentDevice*100+60										//Записываем модель и тип прибора
+				SetData(response[3], "Local HMI", LW, temp, 1)
+				temp=temp+1
+				SetData(response[4], "Local HMI", LW, temp, 1)
+   				temp=temp+1
+  				if response[3] == 3 then
+					SetData(LDMname[0], "Local HMI", LW, temp, 4)
+				else
+					SetData(UNKNOWNname[0], "Local HMI", LW, temp, 4)			
+				end if
+  				temp=temp-1
+				SetData(response[4], "Local HMI", LW, temp, 1)	
+				
+				read_data[1] = (response[36]&0xFF) + (response[35] << 8)		//dm
+				read_data[0] = (response[38]&0xFF) + (response[37] << 8)	
+				dm = ((read_data[1])<<16)+(read_data[0]&0xFFFF)		
+				f_dm = dm/1000.0
+				temp = currentDevice*100 + 30
+				SetData(f_dm, "Local HMI", LW, temp, 1)
+				
+				//Поиск максимального D	
+				temp = currentDevice*100 + 70		
+				GetData(f_dm_max,"Local HMI", LW, temp, 1)
+				if(f_dm>f_dm_max) then
+					SetData(f_dm, "Local HMI", LW, temp, 1)
+				end if
+				//Поиск минимального D
+				temp = currentDevice*100 + 72				
+				GetData(f_dm_min,"Local HMI", LW, temp, 1)
+				if(f_dm<f_dm_min or f_dm_min==0) then
+					SetData(f_dm, "Local HMI", LW, temp, 1)
+				end if
+				
+				
+				
+				if(f_dm<0.001) then
+					NullObject=1
+				else 
+					NullObject=0
+				end if
+				temp = currentDevice*10 + 2
+				SetData(NullObject, "Local HMI", LB, temp, 1)
+			
+				read_data[3] = (response[40]&0xFF) + (response[39] << 8)		//d1
+				read_data[2] = (response[42]&0xFF) + (response[41] << 8)
+				d1 = ((read_data[3])<<16)+(read_data[2]&0xFFFF)
+				f_d1 = d1/1000.0
+				temp = currentDevice*100 + 32
+				SetData(f_d1, "Local HMI", LW, temp, 1)
+				
+				//Поиск максимального D1	
+				temp = currentDevice*100 + 74					
+				GetData(f_dm_max,"Local HMI", LW, temp, 1)
+				if(f_d1>f_dm_max) then
+					SetData(f_d1, "Local HMI", LW, temp, 1)
+				end if
+				//Поиск минимального D1
+				temp = currentDevice*100 + 76				
+				GetData(f_dm_min,"Local HMI", LW, temp, 1)
+				if(f_d1<f_dm_min or f_dm_min==0) then
+					SetData(f_d1, "Local HMI", LW, temp, 1)
+				end if
+				
+				read_data[5] = (response[44]&0xFF) + (response[43] << 8)		//d2
+				read_data[4] = (response[46]&0xFF) + (response[45] << 8)
+				d2 = ((read_data[5])<<16)+(read_data[4]&0xFFFF)
+				f_d2 = d2/1000.0
+				temp = currentDevice*100 + 34
+				SetData(f_d2, "Local HMI", LW, temp, 1)
+				
+				//Поиск максимального D2	
+				temp = currentDevice*100 + 78					
+				GetData(f_dm_max,"Local HMI", LW, temp, 1)
+				if(f_d2>f_dm_max) then
+					SetData(f_d2, "Local HMI", LW, temp, 1)
+				end if
+				//Поиск минимального D2
+				temp = currentDevice*100 + 80				
+				GetData(f_dm_min,"Local HMI", LW, temp, 1)
+				if(f_d2<f_dm_min or f_dm_min==0) then
+					SetData(f_d2, "Local HMI", LW, temp, 1)
+				end if
+				
+				//////////////////////Управление РЕЛЕ/////////////////////////////////////
+				//Проверяем какие каналы включены
+				temp = currentDevice*10					
+				GetData(rele, "Local HMI", RW_Bit, temp, 1)
+				temp=temp+1
+				GetData(releX, "Local HMI", RW_Bit, temp, 1)
+				temp=temp+1
+				GetData(releY, "Local HMI", RW_Bit, temp, 1)
+				
+				//Читаем допуски по среднему
+				if rele==1 then
+					temp = currentDevice*100	
+					GetData(f_dm_down_pred, "Local HMI", RW, temp, 1)
+					temp=temp+2
+					GetData(f_dm_up_pred, "Local HMI", RW, temp, 1)
+					if (f_dm>f_dm_up_pred or f_dm<f_dm_down_pred) then
+						SetData(true_, "Local HMI", LW_Bit, 120000, 1)
+					else
+						SetData(false_, "Local HMI", LW_Bit, 120000, 1)
+					end if
+				else
+					SetData(false_, "Local HMI", LW_Bit, 120000, 1)
+				end if
+				
+				//Читаем допуски по X
+				if releX==1 then				
+					temp = currentDevice*100 +30
+					GetData(f_dm_down_pred, "Local HMI", RW, temp, 1)
+					temp=temp+2
+					GetData(f_dm_up_pred, "Local HMI", RW, temp, 1)
+					if((f_d1>f_dm_up_pred or f_d1<f_dm_down_pred)) then
+						SetData(true_, "Local HMI", LW_Bit, 120001, 1)
+					else
+						SetData(false_, "Local HMI", LW_Bit, 120001, 1)
+					end if
+				else
+					SetData(false_, "Local HMI", LW_Bit, 120001, 1)	
+				end if
+				
+				//Читаем допуски по Y
+				if releY==1 then
+					temp = currentDevice*100 +50
+					GetData(f_dm_down_pred, "Local HMI", RW, temp, 1)
+					temp=temp+2
+					GetData(f_dm_up_pred, "Local HMI", RW, temp, 1)
+					if((f_d2>f_dm_up_pred or f_d2<f_dm_down_pred)) then
+						SetData(true_, "Local HMI", LW_Bit, 120002, 1)
+					else
+						SetData(false_, "Local HMI", LW_Bit, 120002, 1)
+					end if	
+				else
+					SetData(false_, "Local HMI", LW_Bit, 120002, 1)		
+				end if	
+					
+				//Читаем, какое получилось слово
+				GetData(releByte, "Local HMI", LW, 1200, 1)
+				temp=10 + (currentDevice-1) //пишем слово в 10, 11, 12 байт LW
+				SetData(releByte, "Local HMI", LW, temp, 1)
+
+				/////////////////////////////////////////////////////////////////////////////////////////
+						
+				read_data[6] = (response[52]&0xFF) + (response[51] << 8)		//cx
+				read_data[7] =( response[54]&0xFF) + (response[53] << 8)				
+				if(NullObject==0) then
+					Centr_X = ((read_data[6])<<16)+(read_data[7]&0xFFFF)-60000
+				else 
+					Centr_X=0
+				end if
+					
+				f_c1 = Centr_X/1000.0
+				temp = currentDevice*100 + 36
+				SetData(f_c1, "Local HMI", LW, temp, 1)
+				
+				read_data[8] = (response[56]&0xFF) + (response[55] << 8)		//cy
+				read_data[9] = (response[58]&0xFF) + (response[57] << 8)
+				
+				if(NullObject==0) then
+					Centr_Y = ((read_data[8]&0xFFFF)<<16)+(read_data[9]&0xFFFF)-60000
+				else 
+					Centr_Y=0
+				end if
+					
+				f_c2 = Centr_Y/1000.0
+				temp = currentDevice*100 + 38
+				SetData(f_c2, "Local HMI", LW, temp, 1)	
+				
+				read_data[12] = (response[60]&0xFF) + (response[59] << 8)		//error
+				read_data[13] = (response[62]&0xFF) + (response[61] << 8)
+				error = read_data[13]
+				
+				read_data[14] = response[64] + (response[63] << 8)
+				read_data[15] = response[66] + (response[65] << 8)
+				read_data[16] = response[68] + (response[67] << 8)
+				read_data[17] = response[70] + (response[69] << 8)
+				read_data[18] = response[72] + (response[71] << 8)
+				read_data[19] = response[74] + (response[73] << 8)
+				read_data[20] = response[76] + (response[75] << 8)
+				read_data[21] = response[78] + (response[77] << 8)
+			
+				if f_d1>f_d2 then 
+					f_o = (f_d1-f_d2)/2
+				else			
+					f_o = (f_d2-f_d1)/2
+				end if
+			
+				temp = currentDevice*100 + 40
+				SetData(f_o, "Local HMI", LW, temp, 1)
+				
+				//Проверка на наличие ошибок
+				if error > 0  then												
+  					positionError=1
+  					f_c1 = 0
+  					temp = currentDevice*100 + 36
+					SetData(f_c1, "Local HMI", LW, temp, 1)
+					f_c2 = 0
+					temp = currentDevice*100 + 38
+					SetData(f_c2, "Local HMI", LW, temp, 1)
+ 				else
+  					positionError=0
+				end if
+				
+				temp = currentDevice*10 + 1										
+				SetData(positionError, "Local HMI", LB, temp, 1)
+				////////////////////////////////////////
+				temp = currentDevice*100			
+				SetData(read_data[0], "Local HMI", LW, temp, 10)						//Сохраняем все данные в выборку		
+   			else	//CRC error
+     				network_error=1
+  			end if
+		else//return_value > 0
+			network_error=1
+		end if
+		
+	//.................................................../
+	//.......................ЗАСИ........................./
+	//.................................................../
+	else if currentDevice == 4 then
+		GetData(Ustavka_f, "Local HMI", LW,414, 1)
+		Ustavka=Ustavka_f*100
+		GetData(Prev_proboy_cnt, "Local HMI", RW,410, 1)
+		
+		GetData(HiOn     , "Local HMI", LB,42, 1)	//Лампа высокого
+		GetData(Proboy     , "Local HMI", LB,43, 1)	//Наличие пробоя
+		GetData(set_HiOn, "Local HMI",LB, 44, 1)	//Кнопка установить высокое
+		GetData(set_ust, "Local HMI", LB,45, 1)		//Уставка
+		GetData(set_CntPrb, "Local HMI",LB, 46, 1)	//Кнопка сбросить пробой
+		
+		command[0] = device_addr												 // station no
+		if set_CntPrb ==true then												//Команда на сброс количества пробоев
+			command[1] =0x6
+			command[2] =0x0
+			command[3] =0x10
+			command[4]=0
+			command[5]=0
+			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+			
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+			
+			set_CntPrb =false
+			SetData(set_CntPrb, "Local HMI", LB, 46, 1)
+			
+		else if set_ust ==true then												//Команда на задание уставки											
+			command[1] =0x6
+			command[2] =0x0
+			command[3] =0xC
+			HIBYTE(Ustavka, command[4])
+			LOBYTE(Ustavka, command[5])
+	 	
+			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+			set_ust =false
+			SetData(set_ust, "Local HMI", LB, 45, 1)
+	 	
+		else if set_HiOn ==true then											//Команда на включение высокого
+		 	command[1] =0x6
+		 	command[2] =0x0
+		 	command[3] =0xA
+		 	command[4]=0
+	 	
+			if(HiOn == 1) then
+				command[5]=0
+			else
+		  		command[5]=1
+			end if
+	 	
+	 	
+			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+	
+			set_HiOn =false
+			SetData(set_HiOn, "Local HMI", LB, 44, 1)
+			
+		//Запрос на 3-ю функцию
+		else
+			command[1] = 0x3// function code : Read Holding Registers
+			command[1] = 0x3
+			HIBYTE(0, command[2])
+			LOBYTE(0, command[3])
+			HIBYTE(17, command[4])
+			LOBYTE(17, command[5])
+			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			
+			INPORT(response[0], "REDWILL DEVICE", 39, return_value)
+		
+			if return_value > 0 then
+				CRC(response[0], checksum, 37)
+				LOBYTE(checksum, command[6])
+				HIBYTE(checksum, command[7])
+				if  command[6] ==  response[37] and command[7] ==  response[38] then
+					network_error=0	
+					SetData(network_error, "Local HMI", LW, 2001, 1)
+					temp=460
+					SetData(response[3], "Local HMI", LW, temp, 1)
+					temp=temp+1
+					temp_model = response[4]%100
+					SetData(temp_model, "Local HMI", LW, temp, 1)
+					temp=temp+1
+					if response[3] == 0 then 
+						if response[4]==15 or response[4]==20 or response[4]==30 or response[4]==40 or response[4]==115 or response[4]==120 or response[4]==130 or response[4]==140	then
+							SetData(ZASIname[0], "Local HMI", LW, temp, 4)
+						else if response[4]==215 or response[4]==220 then
+							SetData(IASIname[0], "Local HMI", LW, temp, 4)
+						else if response[4]==230 then
+							SetData(ASIPname[0], "Local HMI", LW, temp, 4)
+						end if	
+					end if
+					
+					ust_min_f   = ((response[8]&0xFF) + (response[7] << 8))/100.0
+					ust_max_f   = ((response[10]&0xFF) + (response[9] << 8))/100.0
+					
+					HiOn   = response[24]
+					RealHi = response[26]
+					Ustavka_f=((response[28]&0xFF) + (response[27] << 8))/100.0
+					Current_U =   ((response[32]&0xFF) + (response[31] << 8) )/100.0
+					Current_C =   ((response[34]&0xFF) + (response[33] << 8))/100.0 
+					CntPrb = response[36]
+					if Proboy > 0 then
+						Proboy =Proboy -1
+					end if
+			
+					if(Prev_proboy_cnt <> CntPrb) then
+						Prev_proboy_cnt = CntPrb
+						SetData(Prev_proboy_cnt , "Local HMI" ,RW,410, 1)
+						if(CntPrb<>0) then
+							Proboy = 10
+						end if
+					end if
+					
+					SetData(Ustavka_f, "Local HMI", RW,400, 1)	//Уставка	
+					SetData(Current_U, "Local HMI", LW,400, 1)		
+					SetData(Current_C, "Local HMI", LW,402, 1)
+					SetData(CntPrb     , "Local HMI", LW,404, 1)
+					SetData(ust_min_f, "Local HMI", LW,410, 1)	
+					SetData(ust_max_f, "Local HMI", LW,412, 1)		
+														
+					SetData(RealHi     , "Local HMI", LB,41, 1)		//Индикатор ВКЛ/ВЫКЛ
+					SetData(HiOn     , "Local HMI", LB,42, 1)		//Лампа высокого
+					SetData(Proboy     , "Local HMI", LB,43, 1)		//Лампа пробой	
+					
+				else//CRC error
+					
+					network_error=1
+				end if
+	
+			else//return_value > 0
+				network_error=1
+			end if				
+	end if 				
+
+	
+	
+	//.................................................../
+	//.......................ИД........................./
+	//.................................................../
+	else if currentDevice == 5 then
+	
+		GetData(sbros_len, "Local HMI", LB, 51, 1)
+		GetData(sbros_buh, "Local HMI", LB, 52, 1)
+		GetData(set_buh, "Local HMI", LB, 53, 1)
+		GetData(set_diam, "Local HMI", LB, 54, 1)
+		GetData(set_buh_val, "Local HMI", RW, 504, 1)
+		GetData(diam_val_f, "Local HMI", RW, 508, 1)
+		
+		FILL(command[0], 0, 32)// command initialization
+		FILL(response[0], 0, 52)
+
+		command[0] = device_addr// station no		
+		if sbros_len ==true then
+ 			command[1] =0x06
+ 			command[2] =0x00
+ 			command[3] =0xf0
+ 			command[4] =0x00
+ 			command[5] =0x01
+  			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+						
+			sbros_len=false
+ 			SetData(sbros_len, "Local HMI", LB, 51, 1)
+ 			
+		else if sbros_buh ==true then
+			command[1] =0x06
+ 			command[2] =0x00
+ 			command[3] =0xf0
+ 			command[4] =0x00
+ 			command[5] =0x02
+			
+  			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+			
+			sbros_buh=false
+			SetData(sbros_buh, "Local HMI", LB, 52, 1)
+		
+		else if set_buh ==true then
+			command[1] =0x06
+ 			command[2] =0x00
+ 			command[3] =0xf2
+			LOBYTE((set_buh_val>>16), command[5])
+			HIBYTE((set_buh_val>>16), command[4])
+ 			
+  			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+			
+			command[1] =0x06
+ 			command[2] =0x00
+ 			command[3] =0xf1
+
+			LOBYTE(set_buh_val, command[5])
+			HIBYTE(set_buh_val, command[4])
+ 			
+  			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+			
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+
+			set_buh=false
+			SetData(set_buh, "Local HMI", LB, 53, 1)
+		
+		else if set_diam ==true then
+			command[1] =0x06
+ 			command[2] =0x00
+ 			command[3] =0xf3
+ 			diam_val = diam_val_f*10
+			LOBYTE(diam_val, command[5])
+			HIBYTE(diam_val, command[4])
+ 			
+ 			
+  			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+
+			set_diam=false
+			SetData(set_diam, "Local HMI", LB, 54, 1)
+		
+		else
+			command[1] = 0x3// function code : Read Holding Registers
+			HIBYTE(0, command[2])
+			LOBYTE(0, command[3])
+			HIBYTE(24, command[4])
+			LOBYTE(24, command[5])
+			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 53, return_value)
+			
+			if return_value > 0 then
+				CRC(response[0], checksum, 51)
+				LOBYTE(checksum, command[6])
+				HIBYTE(checksum, command[7])
+				if  command[6] ==  response[51] and command[7] ==  response[52]  then
+   					network_error=0
+   				else
+     				network_error=1
+  				end if
+  			else
+   				network_error=1
+  			end if
+  					
+			read_data[0] = (response[36] &0xFF) + (response[35] << 8)
+			read_data[1] = (response[38] &0xFF) + (response[37] << 8)
+			read_data[2] = (response[40] &0xFF) + (response[39] << 8)
+			read_data[3] = (response[42] &0xFF) + (response[41] << 8)
+			read_data[4] = (response[44] &0xFF) + (response[43] << 8)
+			read_data[5] = (response[46] &0xFF) + (response[45] << 8)
+			read_data[6] = (response[48] &0xFF) + (response[47] << 8)
+			read_data[7] = (response[50] &0xFF) + (response[49] << 8)
+			
+			len = ((read_data[0]&0xFFFF)<<16)+(read_data[1]&0xFFFF)
+			len_b = ((read_data[2]&0xFFFF)<<16)+(read_data[3]&0xFFFF)
+			buht = ((read_data[4]&0xFFFF)<<16)+(read_data[5]&0xFFFF)
+			vel = ((read_data[6]&0xFFFF)<<16)+(read_data[7]&0xFFFF)
+						
+			len_f= len/100.0
+			len_b_f = len_b/100.0
+			vel_f = vel/10.0
+			bool trig=false
+			GetData(trig, "Local HMI", LB, 200, 1)
+			GetData(len_f_old, "Local HMI", LW, 510, 1)
+			GetData(razrX, "Local HMI", RW, 518, 1)
+			GetData(firstLenFlag, "Local HMI", LB, 55, 1)
+			if firstLenFlag==0 then
+				firstLen = len_f
+				SetData(firstLen, "Local HMI", LW, 518, 1)
+				firstLenFlag=1
+				SetData(firstLenFlag, "Local HMI", LB, 55, 1)
+			end if
+			GetData(firstLen, "Local HMI", LW, 518, 1)
+			
+			razrX_= 0 - razrX
+
+			distBtwDots = ROUND((len_f-len_f_old) * 100.0)
+			
+			SetData(distBtwDots, "Local HMI", LW, 520, 1)
+			if (distBtwDots >= razrX) or (distBtwDots <= razrX_) then	//Время добавлять следующую точку на график и в выборку
+				if trig == false then
+					SetData(true_, "Local HMI", LB, 200, 1)
+				else
+					SetData(false_, "Local HMI", LB, 200, 1)
+				end if
+				len_f_old=len_f
+				SetData(len_f_old, "Local HMI", LW, 510, 1)
+				if len_f < (firstLen + razrX/100.0*700) then
+					levGr = firstLen
+					prGr = firstLen + razrX/100.0*700
+				else
+					levGr = len_f - 35.0*(razrX/100.0*18)
+					prGr = len_f + 35.0*(razrX/100.0*2)
+				end if
+				SetData(levGr, "Local HMI", LW, 514, 1)
+				SetData(prGr, "Local HMI", LW, 516, 1)
+			end if
+			
+			SetData(len_f, "Local HMI", LW, 500, 1)
+			SetData(len_b_f, "Local HMI", LW, 502, 1)
+			SetData(buht, "Local HMI", LW, 504, 1)
+			SetData(vel_f, "Local HMI", LW, 506, 1)
+			SetData(cabel_diam, "Local HMI", LW, 508, 1)
+		end if
+		
+	//.................................................../
+	//.......................CAP........................./
+	//.................................................../
+	else if currentDevice == 6 then 
+	
+		//Читаем есть ли к отправке
+		GetData(setAdr, "Local HMI", LB, 61, 1)
+		GetData(setSpeed, "Local HMI", LB, 62, 1)
+		GetData(setMin, "Local HMI", LB, 63, 1)
+		GetData(setMax, "Local HMI", LB, 64, 1)
+		GetData(setNom, "Local HMI", LB, 65, 1)
+		GetData(setCal1, "Local HMI", LB, 66, 1)
+		GetData(setCal2, "Local HMI", LB, 67, 1)
+		GetData(calApply1, "Local HMI", LB, 68, 1)
+		GetData(calApply2, "Local HMI", LB, 69, 1)
+		GetData(capMode, "Local HMI", RW_bit, 71, 1)
+		GetData(calAuto, "Local HMI", LB, 72, 1)
+		
+		//Набираем команду
+		if(capMode == 0) then
+			command[0] = 147											// station no
+		else
+			command[0] = device_addr
+		end if 
+		
+		if setAdr==true then
+			if capMode == 0 then
+				command[1] =0x06
+ 				command[2] =0x00
+ 				command[3] =0x0A
+ 				GetData(ustCAP, "Local HMI", RW, 620, 1)
+ 				HIBYTE(ustCAP, command[4])
+				LOBYTE(ustCAP, command[5])
+	
+  				CRC(command[0], checksum, 6)
+				LOBYTE(checksum, command[6])
+				HIBYTE(checksum, command[7])
+	
+				OUTPORT(command[0], "REDWILL DEVICE", 8)
+				INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+			end if 			
+			setAdr=false
+ 			SetData(setAdr, "Local HMI", LB, 61, 1)
+ 			
+ 			
+ 		else if setSpeed==true then
+			command[1] =0x06
+ 			command[2] =0x00
+ 			command[3] =0x09
+ 			GetData(ustCAP, "Local HMI", LW, 622, 1)
+ 			HIBYTE(ustCAP, command[4])
+			LOBYTE(ustCAP, command[5])
+
+  			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+						
+			setSpeed=false
+ 			SetData(setSpeed, "Local HMI", LB, 62, 1)
+ 			
+		else if setMin==true then
+			command[1] =0x06
+ 			command[2] =0x00
+ 			command[3] =0x05
+ 			GetData(ustCAP, "Local HMI", LW, 623, 1)
+ 			HIBYTE(ustCAP, command[4])
+			LOBYTE(ustCAP, command[5])
+
+  			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+						
+			setMin=false
+ 			SetData(setMin, "Local HMI", LB, 63, 1)
+ 			
+		else if setMax==true then
+			command[1] =0x06
+ 			command[2] =0x00
+ 			command[3] =0x07
+ 			GetData(ustCAP, "Local HMI", LW, 624, 1)
+ 			HIBYTE(ustCAP, command[4])
+			LOBYTE(ustCAP, command[5])
+
+  			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+						
+			setMax=false
+ 			SetData(setMax, "Local HMI", LB, 64, 1)
+ 			
+ 		else if setNom==true then
+			command[1] =0x06
+ 			command[2] =0x00
+ 			command[3] =0x06
+ 			GetData(ustCAP, "Local HMI", LW, 625, 1)
+ 			HIBYTE(ustCAP, command[4])
+			LOBYTE(ustCAP, command[5])
+
+  			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+						
+			setNom=false
+ 			SetData(setNom, "Local HMI", LB, 65, 1)
+ 			
+ 		else if setCal1==true then
+			command[1] =0x10
+ 			command[2] =0x00	//Адрес первого регистра
+ 			command[3] =0x0B
+ 			command[4] =0x00	//Количество регистров
+ 			command[5] =0x02
+ 			GetData(ustCAP, "Local HMI", LW, 626, 1)
+ 			HIBYTE(ustCAP, command[6])
+			LOBYTE(ustCAP, command[7])
+			GetData(ustCAP, "Local HMI", LW, 627, 1)
+ 			HIBYTE(ustCAP, command[8])
+			LOBYTE(ustCAP, command[9])
+			
+
+  			CRC(command[0], checksum, 10)
+			LOBYTE(checksum, command[10])
+			HIBYTE(checksum, command[11])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 12)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+						
+			setCal1=false
+ 			SetData(setCal1, "Local HMI", LB, 66, 1)
+ 			
+ 		else if setCal2==true then
+			command[1] =0x10
+ 			command[2] =0x00	//Адрес первого регистра
+ 			command[3] =0x0D
+ 			command[4] =0x00	//Количество регистров
+ 			command[5] =0x02
+ 			GetData(ustCAP, "Local HMI", LW, 628, 1)
+ 			HIBYTE(ustCAP, command[6])
+			LOBYTE(ustCAP, command[7])
+			GetData(ustCAP, "Local HMI", LW, 627, 1)
+ 			HIBYTE(ustCAP, command[8])
+			LOBYTE(ustCAP, command[9])
+
+  			CRC(command[0], checksum, 10)
+			LOBYTE(checksum, command[10])
+			HIBYTE(checksum, command[11])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 12)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+						
+			setCal2=false
+ 			SetData(setCal2, "Local HMI", LB, 67, 1)
+ 			
+ 		else if calApply1==true then
+			command[1] =0x06
+ 			command[2] =0x00		
+ 			command[3] =0x0F
+ 			
+ 			HIBYTE(1, command[4])
+			LOBYTE(1, command[5])
+
+  			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+						
+			calApply1=false
+ 			SetData(calApply1, "Local HMI", LB, 68, 1)
+ 			
+ 		else if calApply2==true then
+			command[1] =0x06
+ 			command[2] =0x00
+ 			command[3] =0x0F
+ 			HIBYTE(2, command[4])
+			LOBYTE(2, command[5])
+
+  			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+						
+			calApply2=false
+ 			SetData(calApply2, "Local HMI", LB, 69, 1)
+ 			
+ 		else if calAuto==true then
+			command[1] =0x06
+ 			command[2] =0x00
+ 			command[3] =0x11
+ 			HIBYTE(1, command[4])
+			LOBYTE(1, command[5])
+
+  			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+
+			OUTPORT(command[0], "REDWILL DEVICE", 8)
+			INPORT(response[0], "REDWILL DEVICE", 8, return_value)
+						
+			calAuto=false
+ 			SetData(calAuto, "Local HMI", LB, 72, 1)
+ 			
+ 		//Запрос на 3-ю функцию	 
+		else
+			command[1] = 0x03													// function code : Read Holding Registers
+			HIBYTE(0, command[2])												//address
+			LOBYTE(0, command[3])												
+			HIBYTE(26, command[4])												// read 22 words (4x_1 and 4x_2)
+			LOBYTE(26, command[5])
+			CRC(command[0], checksum, 6)
+			LOBYTE(checksum, command[6])
+			HIBYTE(checksum, command[7])
+					
+			OUTPORT(command[0], "REDWILL DEVICE", 8)									// отправляем команду 8 байт	
+			INPORT(response[0], "REDWILL DEVICE", 57, return_value)						// получаем ответ 49 байт
+		
+			if return_value > 0 then
+				CRC(response[0], checksum, 55)									//Считаем и проверяем CRC
+				LOBYTE(checksum, command[6])
+				HIBYTE(checksum, command[7])
+				if  command[6] ==  response[55] and command[7] ==  response[56] then
+   						network_error=0
+   						temp=660
+						SetData(response[3], "Local HMI", LW, temp, 1)
+						temp=temp+1
+						SetData(response[4], "Local HMI", LW, temp, 1)
+						temp=temp+1
+						SetData(CAPname[0], "Local HMI", LW, temp, 4)
+						
+						shCAP = (response[12]&0xFF) + (response[11] << 8)		//Текущая емкость
+						SetData(shCAP, "Local HMI", LW, 600, 1)
+						shCAP = (response[14]&0xFF) + (response[13] << 8)		//min
+						SetData(shCAP, "Local HMI", LW, 633, 1)
+						shCAP = (response[16]&0xFF) + (response[15] << 8)		//nom
+						SetData(shCAP, "Local HMI", LW, 635, 1)
+						shCAP = (response[18]&0xFF) + (response[17] << 8)		//max
+						SetData(shCAP, "Local HMI", LW, 634, 1)
+						shCAP = (response[20]&0xFF) + (response[19] << 8)		//def
+						SetData(shCAP, "Local HMI", LB, 70, 1)
+						shCAP = (response[22]&0xFF) + (response[21] << 8)		//speed
+						SetData(shCAP, "Local HMI", LW, 632, 1)
+						if(shCAP==0) then 
+							speedCap=9600
+						else if(shCAP==1) then 
+							speedCap=19200
+						else if(shCAP==2) then 
+							speedCap=38400
+						else if(shCAP==3) then 
+							speedCap=76800
+						else if(shCAP==4) then 
+							speedCap=115200
+						else
+							speedCap=0
+						end if
+						SetData(speedCap, "Local HMI", LW, 666, 1)
+						
+						shCAP = (response[24]&0xFF) + (response[23] << 8)		//adr
+						SetData(shCAP, "Local HMI", LW, 631, 1)
+						
+						shCAP = (response[26]&0xFF) + (response[25] << 8)		//Эт1
+						SetData(shCAP, "Local HMI", LW, 636, 1)
+						shCAP = (response[28]&0xFF) + (response[27] << 8)		//Изм1
+						SetData(shCAP, "Local HMI", LW, 637, 1)
+						shCAP = (response[30]&0xFF) + (response[29] << 8)		//Эт2
+						SetData(shCAP, "Local HMI", LW, 638, 1)
+						shCAP = (response[32]&0xFF) + (response[31] << 8)		//Изм2
+						SetData(shCAP, "Local HMI", LW, 639, 1)
+						
+						calibMode = (response[34]&0xFF) + (response[33] << 8)		
+						if(calibMode==1) then
+							calibState=0
+						else if(calibMode==2)then
+							calibState=1
+						end if
+						SetData(calibState, "Local HMI", LB, 74, 1)
+						
+						autoCap = (response[42]&0xFF) + (response[41] << 8) 		//Авто High
+						SetData(autoCap, "Local HMI", LW, 641, 1)
+						autoCap = (response[40]&0xFF) + (response[39] << 8)		//Авто low
+						SetData(autoCap, "Local HMI", LW, 640, 1)
+						
+						shCx = (response[44]&0xFF) + (response[43] << 8)		//Cx
+						SetData(shCx, "Local HMI", LW, 627, 1)
+			
+						
+						re1x =((response[46]&0xFF) + (response[45] << 8)) / 1000.0
+						SetData(re1x, "Local HMI", LW, 642, 1)
+						im1x =((response[48]&0xFF) + (response[47] << 8)) / 1000.0
+						SetData(im1x, "Local HMI", LW, 644, 1)
+						ur =((response[50]&0xFF) + (response[49] << 8)) / 1000.0
+						SetData(ur, "Local HMI", LW, 646, 1)
+						reIr =((response[52]&0xFF) + (response[51] << 8)) / 1000.0
+						SetData(reIr, "Local HMI", LW, 648, 1)
+						
+						cailrated =response[54]&0xFF
+						SetData(cailrated, "Local HMI", LB, 75, 1)
+						
+												
+   				else//CRC error
+     					network_error=1				
+  				end if
+			else//return_value > 0
+				network_error=1				
+			end if	
+		end if		
+	
+	//Перебрали все девайсы
+	else
+		network_error=1
+	end if
+	
+	//Включаем/отключаем элементы отображения дисплея в зависимости от ошибки
+	temp = currentDevice*10
+	SetData(network_error, "Local HMI", LB, temp, 1)
+
+	
+	//	**********************************************************************************************//
+	//	***********************************************РЕЛЕ*******************************************//
+	//	**********************************************************************************************//
+	
+	GetData(rele_addr[0], "Local HMI", RW, 70, 1)
+	GetData(rele_addr[1], "Local HMI", RW, 71, 1)
+	GetData(rele_addr[2], "Local HMI", RW, 72, 1)
+	
+
+	temp = currentDevice-1
+	//Запрашиваем состояние текущего модуля реле
+	command[0] = rele_addr[temp]	    // station no					
+	command[1] =0x03					// 
+	command[2] =0x00					//Адрес первого регистра
+	command[3] =0x01
+	command[4] =0x00					//количеств
+	command[5] =0x01	
+	
+	CRC(command[0], checksum, 6)
+	LOBYTE(checksum, command[6])
+	HIBYTE(checksum, command[7])
+	
+	
+	OUTPORT(command[0], "REDWILL DEVICE", 8)
+	INPORT(response[0], "REDWILL DEVICE", 7, return_value)	
+	
+	if return_value > 0 then
+		CRC(response[0], checksum, 5)									//Считаем и проверяем CRC
+		LOBYTE(checksum, command[6])
+		HIBYTE(checksum, command[7])
+		if  command[6] ==  response[5] and command[7] ==  response[6] then
+   			network_error=0
+   			pastByte=response[4]							//то, что сейчас в модуле
+   			
+   			temp = 10 + (currentDevice-1)					//То, что надо записать
+			GetData(curByte, "Local HMI", LW,temp, 1)
+	
+   			if pastByte <> curByte	then					//Если то, что в модуле и то, что должно быть не совпадает, засылаем команду
+				temp = currentDevice-1				
+				command[1] =0x6						//
+				command[2] =0x0						//Адрес первого регистра
+				command[3] =0x1
+				command[4] =0x0		//Значение
+				command[5] =curByte & 0xFF	
+			
+				CRC(command[0], checksum, 6)
+				LOBYTE(checksum, command[6])
+				HIBYTE(checksum, command[7])
+				OUTPORT(command[0], "REDWILL DEVICE", 8)
+				INPORT(response[0], "REDWILL DEVICE", 8, return_value)		
+			end if 
+   		else
+   			network_error=1
+   		end if
+   	else
+   		network_error=1
+   	end if	
+	
+	//Выводим ошибку по реле, если блок не ответил
+	temp = 100 +  (currentDevice-1)*10
+	SetData(network_error, "Local HMI", LB, temp, 1)
+
+	
+end macro_command
