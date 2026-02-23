@@ -1,0 +1,143 @@
+﻿macro_definition_begin
+    "id": "4"
+    "name": "SetPredels"
+    "startup": "false"
+    "periodic": [ "false" ]
+    "interlock": [ "false" ]
+macro_definition_end
+//FOR LDM
+macro_command main()
+
+float f_dmin_panel=0, f_dmax_panel=0, f_nom_panel=0, f_value=0
+float f_dmin_panelX=0, f_dmax_panelX=0, f_nom_panelX=0,f_dmin_panelY=0, f_dmax_panelY=0, f_nom_panelY=0
+unsigned int  value=0
+int temp=0
+int i=0
+int k=0
+bool round_flat=false
+	
+for i=1 to 3 
+	temp =i*10 +3
+	GetData(round_flat, "Local HMI", RW_Bit, temp, 1)
+	if(round_flat == false) then//Круглый кабель
+		//Пределы, вводимые пользователем
+		temp =i*100
+		GetData(f_dmin_panel, "Local HMI", RW, temp, 1)
+		temp = temp+2
+		GetData(f_dmax_panel, "Local HMI", RW, temp, 1)
+		temp = temp+2
+		GetData(f_nom_panel, "Local HMI", RW, temp, 1)	
+		
+		//Считаем ось Y графика	
+		f_value = f_dmin_panel - (f_nom_panel-f_dmin_panel)
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+		f_value = f_dmax_panel + (f_dmax_panel-f_nom_panel)
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+
+		//Из пределов считаем индикацию столбика
+		f_value = f_dmin_panel					//Достижение минимального допуска. Столбик красный
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+		
+		f_value = f_dmax_panel						//Достижение максимальнрого допуска. Столбик красный
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+		
+		f_value = f_nom_panel						 //Достижение номинального допуска. Столбик зеленый +-10
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+		
+		f_value = f_dmin_panel -(f_nom_panel-f_dmin_panel)	//минимальное значение столбика
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+				
+		f_value = f_dmax_panel +(f_dmax_panel-f_nom_panel) //максимальное значение столбика
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+	
+	else //Плоский кабель
+		temp =i*100 +30
+		GetData(f_dmin_panelX, "Local HMI", RW, temp, 1)
+		temp = temp+2
+		GetData(f_dmax_panelX, "Local HMI", RW, temp, 1)
+		temp = temp+2
+		GetData(f_nom_panelX, "Local HMI", RW, temp, 1)
+		
+		//Из них считаем индикацию столбика
+		f_value = f_dmin_panelX						//Достижение минимального допуска. Столбик красный
+		temp =i*100 +40
+		SetData(f_value, "Local HMI", RW, temp, 1)
+		
+		f_value = f_dmax_panelX						//Достижение максимальнрого допуска. Столбик красный
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+		
+		f_value = f_nom_panelX						//Достижение номинального допуска. Столбик зеленый +-10
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+		
+		f_value = f_dmin_panelX -(f_nom_panelX-f_dmin_panelX)	//минимальное значение столбика
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+				
+		f_value = f_dmax_panelX +(f_dmax_panelX-f_nom_panelX) //максимальное значение столбика
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+		
+		temp =i*100+50
+		GetData(f_dmin_panelY, "Local HMI", RW, temp, 1)
+		temp = temp+2
+		GetData(f_dmax_panelY, "Local HMI", RW, temp, 1)
+		temp = temp+2
+		GetData(f_nom_panelY, "Local HMI", RW, temp, 1)
+		
+		//Из них считаем индикацию столбика
+		f_value = f_dmin_panelY						//Достижение минимального допуска. Столбик красный
+		temp =i*100 +60
+		SetData(f_value, "Local HMI", RW, temp, 1)
+		
+		f_value = f_dmax_panelY						//Достижение максимальнрого допуска. Столбик красный
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+		
+		f_value = f_nom_panelY						//Достижение номинального допуска. Столбик зеленый +-10
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+		
+		f_value = f_dmin_panelY -(f_nom_panelY-f_dmin_panelY)	//минимальное значение столбика
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+				
+		f_value = f_dmax_panelY +(f_dmax_panelY-f_nom_panelY) //максимальное значение столбика
+		temp = temp+2
+		SetData(f_value, "Local HMI", RW, temp, 1)
+		
+		//Считаем ось Y графика	
+		if(f_dmin_panelX < f_dmin_panelY)	then 
+			f_value = f_dmin_panelX - (f_nom_panelX-f_dmin_panelX)
+			temp =i*100 +6
+			SetData(f_value, "Local HMI", RW, temp, 1)
+		else								 
+			f_value = f_dmin_panelY - (f_nom_panelY-f_dmin_panelY)
+			temp =i*100 +6
+			SetData(f_value, "Local HMI", RW, temp, 1)
+			
+		end if 
+		
+		if(f_dmax_panelX > f_dmax_panelY)	then 
+			f_value = f_dmax_panelX + (f_dmax_panelX-f_nom_panelX)
+			temp = temp+2
+			SetData(f_value, "Local HMI", RW, temp, 1)
+		else								 
+			f_value = f_dmax_panelY + (f_dmax_panelY-f_nom_panelY)
+			temp = temp+2
+			SetData(f_value, "Local HMI", RW, temp, 1)
+			
+		end if 
+					
+	end if	
+next
+	
+end macro_command
